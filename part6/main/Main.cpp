@@ -12,6 +12,9 @@
 #include <sys/types.h>
 #include <sys/select.h>
 #include <cstring>
+#include <thread>
+#include <chrono>
+#include "../include/Reactor.hpp"
 
 #define PORT 9034
 #define MAX_CLIENTS 10
@@ -28,6 +31,7 @@ bool waiting_for_graph = false;
 int points_to_read = 0;
 int newgraph_owner_fd = -1;  // fd of the client building the new graph
 std::unordered_map<int, ClientState> clients;
+void* globalReactor = nullptr;
 
 bool is_number(const std::string& s) {
     std::istringstream iss(s);
@@ -136,60 +140,86 @@ std::string process_line(int fd, const std::string& rawline) {
     return "ERROR: Unknown command.";
 }
 
+void handle_client(int fd) {
+    char buffer[1024];
+    int bytes = recv(fd, buffer, sizeof(buffer), 0);
+
+    if (bytes <= 0) {
+        std::cout << "Client " << fd << " disconnected or error occurred (recv=" << bytes << "). Closing fd." << std::endl;
+        removeFdFromReactor(globalReactor, fd);
+        close(fd);
+        clients.erase(fd);
+        if (waiting_for_graph && fd == newgraph_owner_fd) {
+            std::cout << "Graph construction aborted (owner disconnected)." << std::endl;
+            waiting_for_graph = false;
+            newgraph_owner_fd = -1;
+            temp_points.clear();
+        }
+        return;
+    }
+
+    std::string& inbuf = clients[fd].inbuf;
+    inbuf.append(buffer, bytes);
+    std::cout << "Received from fd " << fd << ": " << std::string(buffer, bytes) << std::endl;
+
+    size_t pos;
+    while ((pos = inbuf.find('\n')) != std::string::npos) {
+        std::string line = inbuf.substr(0, pos + 1);
+        inbuf.erase(0, pos + 1);
+        std::string response = process_line(fd, line);
+        std::cout << "Processing line: " << line << " → Response: " << response << "\n" << std::endl;
+        if (!response.empty()) {
+            response += "\n";
+            send(fd, response.c_str(), response.size(), 0);
+        }
+    }
+}
+
+void handle_listener(int fd) {
+    int client_fd = accept(fd, nullptr, nullptr);
+    if (client_fd >= 0) {
+        std::cout << "New client accepted: " << client_fd << "\n" << std::endl;
+        addFdToReactor(globalReactor, client_fd, handle_client);
+        clients[client_fd] = ClientState{};
+    } else {
+        perror("accept failed");
+    }
+}
+
 int main() {
     int listener = socket(AF_INET, SOCK_STREAM, 0);
+    if (listener < 0) {
+        perror("socket failed");
+        return 1;
+    }
+
     sockaddr_in server{};
     server.sin_family = AF_INET;
     server.sin_port = htons(PORT);
     server.sin_addr.s_addr = INADDR_ANY;
 
-    bind(listener, (sockaddr*)&server, sizeof(server));
-    listen(listener, MAX_CLIENTS);
+    if (bind(listener, (sockaddr*)&server, sizeof(server)) < 0) {
+        perror("bind failed");
+        return 1;
+    }
 
-    fd_set master, read_fds;
-    FD_ZERO(&master);
-    FD_SET(listener, &master);
-    int fdmax = listener;
+    if (listen(listener, MAX_CLIENTS) < 0) {
+        perror("listen failed");
+        return 1;
+    }
+
+    globalReactor = startReactor();
+    addFdToReactor(globalReactor, listener, handle_listener);
+
+    std::cout << "Server is running. Press Ctrl+C to exit.\n\n";
 
     while (true) {
-        read_fds = master;
-        select(fdmax + 1, &read_fds, nullptr, nullptr, nullptr);
-
-        for (int i = 0; i <= fdmax; ++i) {
-            if (FD_ISSET(i, &read_fds)) {
-                if (i == listener) {
-                    int newfd = accept(listener, nullptr, nullptr);
-                    FD_SET(newfd, &master);
-                    if (newfd > fdmax) fdmax = newfd;
-                    clients[newfd] = ClientState{};
-                } else {
-                    char buffer[1024];
-                    int bytes = recv(i, buffer, sizeof(buffer), 0);
-                    if (bytes <= 0) {
-                        close(i);
-                        FD_CLR(i, &master);
-                        clients.erase(i);
-                        if (waiting_for_graph && i == newgraph_owner_fd) {
-                            waiting_for_graph = false;
-                            temp_points.clear();
-                            newgraph_owner_fd = -1;
-                        }
-                    } else {
-                        std::string& inbuf = clients[i].inbuf;
-                        inbuf.append(buffer, bytes);
-                        size_t pos;
-                        while ((pos = inbuf.find('\n')) != std::string::npos) {
-                            std::string line = inbuf.substr(0, pos + 1);
-                            inbuf.erase(0, pos + 1);
-                            std::string response = process_line(i, line);
-                            if (!response.empty()) {
-                                response += "\n";
-                                send(i, response.c_str(), response.size(), 0);
-                            }
-                        }
-                    }
-                }
-            }
-        }
+        std::this_thread::sleep_for(std::chrono::seconds(1));
     }
+
+    stopReactor(globalReactor);
+    return 0;
 }
+
+
+

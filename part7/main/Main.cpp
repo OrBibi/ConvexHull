@@ -10,23 +10,24 @@
 #include <netinet/in.h>
 #include <sys/socket.h>
 #include <sys/types.h>
-#include <sys/select.h>
 #include <cstring>
+#include <thread>            // Added for std::thread
+#include <mutex>             // Added for std::mutex
 
 #define PORT 9034
 #define MAX_CLIENTS 10
 
-// Per-client state buffer
+std::mutex graph_mutex;     // Added: mutex to protect access to shared graph data
+
 struct ClientState {
-    std::string inbuf;  // Accumulate input until newline
+    std::string inbuf;
 };
 
-// Shared graph data (global)
 std::deque<Point> point_set;
 std::deque<Point> temp_points;
 bool waiting_for_graph = false;
 int points_to_read = 0;
-int newgraph_owner_fd = -1;  // fd of the client building the new graph
+int newgraph_owner_fd = -1;
 std::unordered_map<int, ClientState> clients;
 
 bool is_number(const std::string& s) {
@@ -40,12 +41,12 @@ void trim_crlf(std::string &s) {
     while (!s.empty() && std::isspace((unsigned char)s.front())) s.erase(s.begin());
 }
 
-// Only the client who started Newgraph can continue sending points
 bool is_busy_for_fd(int fd) {
     return waiting_for_graph && fd != newgraph_owner_fd;
 }
 
 std::string handle_point_line(const std::string& line) {
+    std::lock_guard<std::mutex> lock(graph_mutex); // Protect access to shared temp_points
     size_t comma = line.find(',');
     if (comma == std::string::npos) return "ERROR: Invalid point format.";
     std::string x_str = line.substr(0, comma);
@@ -66,6 +67,7 @@ std::string handle_point_line(const std::string& line) {
 }
 
 std::string handle_newpoint(const std::string& args) {
+    std::lock_guard<std::mutex> lock(graph_mutex); // Protect access to point_set
     size_t comma = args.find(',');
     if (comma == std::string::npos) return "ERROR: Invalid format.";
     std::string x_str = args.substr(0, comma);
@@ -77,6 +79,7 @@ std::string handle_newpoint(const std::string& args) {
 }
 
 std::string handle_removepoint(const std::string& args) {
+    std::lock_guard<std::mutex> lock(graph_mutex); // Protect access to point_set
     size_t comma = args.find(',');
     if (comma == std::string::npos) return "ERROR: Invalid format.";
     std::string x_str = args.substr(0, comma);
@@ -90,6 +93,7 @@ std::string handle_removepoint(const std::string& args) {
 }
 
 std::string handle_ch() {
+    std::lock_guard<std::mutex> lock(graph_mutex); // Protect read access to point_set
     auto hull = compute_convex_hull_deque(point_set);
     double area = compute_area(hull);
     std::ostringstream oss;
@@ -120,6 +124,7 @@ std::string process_line(int fd, const std::string& rawline) {
     else args.clear();
 
     if (command == "Newgraph") {
+        std::lock_guard<std::mutex> lock(graph_mutex); // Protect write to shared state
         std::istringstream a(args);
         int n;
         if (!(a >> n) || n <= 0) return "ERROR: Invalid number.";
@@ -136,6 +141,37 @@ std::string process_line(int fd, const std::string& rawline) {
     return "ERROR: Unknown command.";
 }
 
+void handle_client(int client_fd) {
+    char buffer[1024];
+    while (true) {
+        int bytes = recv(client_fd, buffer, sizeof(buffer), 0);
+        if (bytes <= 0) {
+            close(client_fd);
+            std::lock_guard<std::mutex> lock(graph_mutex);
+            clients.erase(client_fd);
+            if (waiting_for_graph && client_fd == newgraph_owner_fd) {
+                waiting_for_graph = false;
+                temp_points.clear();
+                newgraph_owner_fd = -1;
+            }
+            break;
+        }
+
+        std::string& inbuf = clients[client_fd].inbuf;
+        inbuf.append(buffer, bytes);
+        size_t pos;
+        while ((pos = inbuf.find('\n')) != std::string::npos) {
+            std::string line = inbuf.substr(0, pos + 1);
+            inbuf.erase(0, pos + 1);
+            std::string response = process_line(client_fd, line);
+            if (!response.empty()) {
+                response += "\n";
+                send(client_fd, response.c_str(), response.size(), 0);
+            }
+        }
+    }
+}
+
 int main() {
     int listener = socket(AF_INET, SOCK_STREAM, 0);
     sockaddr_in server{};
@@ -145,51 +181,17 @@ int main() {
 
     bind(listener, (sockaddr*)&server, sizeof(server));
     listen(listener, MAX_CLIENTS);
-
-    fd_set master, read_fds;
-    FD_ZERO(&master);
-    FD_SET(listener, &master);
-    int fdmax = listener;
+    std::cout << "Server listening on port " << PORT << std::endl;
 
     while (true) {
-        read_fds = master;
-        select(fdmax + 1, &read_fds, nullptr, nullptr, nullptr);
-
-        for (int i = 0; i <= fdmax; ++i) {
-            if (FD_ISSET(i, &read_fds)) {
-                if (i == listener) {
-                    int newfd = accept(listener, nullptr, nullptr);
-                    FD_SET(newfd, &master);
-                    if (newfd > fdmax) fdmax = newfd;
-                    clients[newfd] = ClientState{};
-                } else {
-                    char buffer[1024];
-                    int bytes = recv(i, buffer, sizeof(buffer), 0);
-                    if (bytes <= 0) {
-                        close(i);
-                        FD_CLR(i, &master);
-                        clients.erase(i);
-                        if (waiting_for_graph && i == newgraph_owner_fd) {
-                            waiting_for_graph = false;
-                            temp_points.clear();
-                            newgraph_owner_fd = -1;
-                        }
-                    } else {
-                        std::string& inbuf = clients[i].inbuf;
-                        inbuf.append(buffer, bytes);
-                        size_t pos;
-                        while ((pos = inbuf.find('\n')) != std::string::npos) {
-                            std::string line = inbuf.substr(0, pos + 1);
-                            inbuf.erase(0, pos + 1);
-                            std::string response = process_line(i, line);
-                            if (!response.empty()) {
-                                response += "\n";
-                                send(i, response.c_str(), response.size(), 0);
-                            }
-                        }
-                    }
-                }
+        int client_fd = accept(listener, nullptr, nullptr);
+        if (client_fd >= 0) {
+            {
+                std::lock_guard<std::mutex> lock(graph_mutex);
+                clients[client_fd] = ClientState{};
             }
+            std::thread t(handle_client, client_fd); // Launch new thread per client
+            t.detach(); // Detach thread so it runs independently
         }
     }
-}
+} 

@@ -1,7 +1,7 @@
 CXX = g++
-CXXFLAGS = -std=c++17 -Wall -Wextra -O2
+CXXFLAGS = -std=c++17 -Wall -pthread
 INCLUDES = -Iinclude
-SRC = src/GeometryUtils.cpp main/Main.cpp
+SRC = src/GeometryUtils.cpp src/Reactor.cpp main/Main.cpp
 TARGET = bin/ConvexHullServer
 
 all: $(TARGET)
