@@ -1,0 +1,24 @@
+Newgraph 3
+0,0
+1,0
+0,1
+CH
+Newpoint 1,1
+CH
+Removepoint 0,0
+CH
+Newgraph 2
+0,0
+1,1
+Newpoint 2,2
+CH
+Newgraph 2
+1,2
+2,3
+CH
+Newgraph a
+CH
+Newgraph 2
+x,y
+0,0
+CH
