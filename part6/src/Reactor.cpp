@@ -94,10 +94,3 @@ int stopReactor(void* reactorPtr) {
     delete reactor;
     return 0;
 }
-
-void runReactor(void* reactorPtr) {
-    Reactor* reactor = static_cast<Reactor*>(reactorPtr);
-    if (reactor && reactor->loopThread.joinable()) {
-        reactor->loopThread.join();
-    }
-}
