@@ -5,22 +5,42 @@
 #include <string>
 #include <cctype>
 
-/*
- * Convex Hull Area Calculator (Stage 1)
+/**
+ * @file
+ * @brief Convex Hull Area Calculator (Stage 1)
  *
- * - Reads an integer N from the first line (number of points)
- * - Reads N valid points in the format x,y (floats)
- * - Ignores invalid lines and continues until N valid points are received
- * - Computes the convex hull and prints the area
+ * Reads a set of 2D points from standard input, computes the convex hull using
+ * the Monotone Chain algorithm, and prints the area of the resulting polygon.
+ *
+ * Input format:
+ * - First line: an integer N representing the number of points.
+ * - Next N lines: each line contains a point in the format x,y (with floating-point values).
+ * - Invalid lines are ignored until N valid points are collected.
+ *
+ * Output:
+ * - A single floating-point number: the area of the convex hull.
  */
 
-// Check if a string represents a valid float number
+/**
+ * @brief Checks whether a string represents a valid floating-point number.
+ * 
+ * @param s The input string to validate.
+ * @return true if the string is a valid float, false otherwise.
+ */
 bool is_number(const std::string& s) {
     std::istringstream iss(s);
     double d;
     return (iss >> d) && iss.eof();
 }
 
+/**
+ * @brief Main entry point of the program.
+ * 
+ * Reads input from stdin, collects valid points, computes their convex hull,
+ * and prints the area of the convex hull to stdout.
+ * 
+ * @return 0 on success, 1 on input error.
+ */
 int main() {
     std::string line;
     int n = 0;

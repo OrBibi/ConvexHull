@@ -3,13 +3,23 @@
 #include <unistd.h>
 #include <iostream>
 
-// Internal wrapper to adapt function pointer signature
+/**
+ * @struct ThreadArgs
+ * @brief Holds the socket file descriptor and the function to execute in a thread.
+ */
 struct ThreadArgs {
     int sockfd;
     proactorFunc func;
 };
 
-// Wrapper function passed to pthread_create
+/**
+ * @brief Wrapper function for thread execution.
+ * 
+ * Executes the user-defined function with the socket file descriptor, then closes the socket.
+ * 
+ * @param arg Pointer to ThreadArgs containing the socket and function.
+ * @return Always returns nullptr.
+ */
 void* threadWrapper(void* arg) {
     ThreadArgs* args = static_cast<ThreadArgs*>(arg);
     if (args->func) {
@@ -20,6 +30,13 @@ void* threadWrapper(void* arg) {
     return nullptr;
 }
 
+/**
+ * @brief Starts a new thread (proactor) to handle a given socket.
+ * 
+ * @param sockfd The socket file descriptor to handle.
+ * @param threadFunc The function to execute in the new thread.
+ * @return The thread ID of the created proactor thread, or default-constructed ID on failure.
+ */
 pthread_t startProactor(int sockfd, proactorFunc threadFunc) {
     pthread_t tid;
     ThreadArgs* args = new ThreadArgs{sockfd, threadFunc};
@@ -33,6 +50,12 @@ pthread_t startProactor(int sockfd, proactorFunc threadFunc) {
     return tid;
 }
 
+/**
+ * @brief Stops the proactor thread by canceling and joining it.
+ * 
+ * @param tid The thread ID to stop.
+ * @return 0 on success, -1 on failure.
+ */
 int stopProactor(pthread_t tid) {
     // Try to cancel the thread gracefully
     if (pthread_cancel(tid) != 0) {

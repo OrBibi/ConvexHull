@@ -40,22 +40,39 @@ int points_to_read = 0;
 int newgraph_owner_fd = -1;
 std::mutex graph_mutex;
 
+// Per-client input buffer state
 struct ClientState {
     std::string inbuf;
 };
+
+// Map of file descriptors to client states
 std::unordered_map<int, ClientState> clients;
 
+/**
+ * @brief Trims trailing newline and carriage return characters, and leading spaces.
+ * @param s The input string to trim.
+ */
 void trim_crlf(std::string &s) {
     while (!s.empty() && (s.back() == '\n' || s.back() == '\r')) s.pop_back();
     while (!s.empty() && std::isspace((unsigned char)s.front())) s.erase(s.begin());
 }
 
+/**
+ * @brief Checks if the given string represents a valid number.
+ * @param s The string to check.
+ * @return True if the string is a number, false otherwise.
+ */
 bool is_number(const std::string& s) {
     std::istringstream iss(s);
     double d;
     return (iss >> d) && iss.eof();
 }
 
+/**
+ * @brief Handles a line containing a point during the construction of a new graph.
+ * @param line The line containing the point coordinates.
+ * @return Response message indicating success or error.
+ */
 std::string handle_point_line(const std::string& line) {
     std::lock_guard<std::mutex> lock(graph_mutex);
     size_t comma = line.find(',');
@@ -76,6 +93,11 @@ std::string handle_point_line(const std::string& line) {
     return "OK";
 }
 
+/**
+ * @brief Adds a new point to the shared point set.
+ * @param args A string with comma-separated x,y coordinates.
+ * @return Response message indicating success or error.
+ */
 std::string handle_newpoint(const std::string& args) {
     std::lock_guard<std::mutex> lock(graph_mutex);
     size_t comma = args.find(',');
@@ -88,6 +110,11 @@ std::string handle_newpoint(const std::string& args) {
     return "OK";
 }
 
+/**
+ * @brief Removes a point from the shared point set.
+ * @param args A string with comma-separated x,y coordinates.
+ * @return Response message indicating success or error.
+ */
 std::string handle_removepoint(const std::string& args) {
     std::lock_guard<std::mutex> lock(graph_mutex);
     size_t comma = args.find(',');
@@ -102,6 +129,10 @@ std::string handle_removepoint(const std::string& args) {
     return "OK";
 }
 
+/**
+ * @brief Computes the convex hull and its area, and returns the area.
+ * @return The area of the convex hull as a string.
+ */
 std::string handle_ch() {
     std::lock_guard<std::mutex> lock(graph_mutex);
     auto hull = compute_convex_hull_deque(point_set);
@@ -114,6 +145,12 @@ std::string handle_ch() {
     return oss.str();
 }
 
+/**
+ * @brief Processes a complete command line from a client.
+ * @param fd The client's socket file descriptor.
+ * @param rawline The raw input line from the client.
+ * @return Response string to send back to the client.
+ */
 std::string process_line(int fd, const std::string& rawline) {
     std::string line = rawline;
     trim_crlf(line);
@@ -149,6 +186,11 @@ std::string process_line(int fd, const std::string& rawline) {
     return "ERROR: Unknown command.";
 }
 
+/**
+ * @brief Handles communication with a single client in a separate thread.
+ * @param fd The client's socket file descriptor.
+ * @return nullptr when the thread exits.
+ */
 void* client_thread_handler(int fd) {
     char buffer[1024];
     clients[fd] = ClientState{};
@@ -190,7 +232,10 @@ void* client_thread_handler(int fd) {
     return nullptr;
 }
 
-
+/**
+ * @brief Handles a new incoming client connection.
+ * @param listener_fd The file descriptor of the listening socket.
+ */
 void handle_new_connection(int listener_fd) {
     int client_fd = accept(listener_fd, nullptr, nullptr);
     if (client_fd >= 0) {
@@ -199,7 +244,11 @@ void handle_new_connection(int listener_fd) {
     }
 }
 
-// Thread function that monitors the area of the Convex Hull (CH)
+/**
+ * @brief Thread function that monitors the area of the convex hull and prints updates.
+ * @param Unused
+ * @return nullptr when the thread exits.
+ */
 void* area_monitor_thread(void*) {
     while (true) {
         // Wait for a signal indicating a CH computation was requested
@@ -227,6 +276,11 @@ void* area_monitor_thread(void*) {
     return nullptr;
 }
 
+/**
+ * @brief Main entry point of the server program.
+ *        Sets up networking, launches threads, and starts the reactor.
+ * @return Exit status code.
+ */
 int main() {
     int listener = socket(AF_INET, SOCK_STREAM, 0);
     if (listener < 0) {

@@ -19,7 +19,7 @@
 #define PORT 9034
 #define MAX_CLIENTS 10
 
-// Shared graph data
+// Global shared graph state and mutex
 std::deque<Point> point_set;
 std::deque<Point> temp_points;
 bool waiting_for_graph = false;
@@ -27,22 +27,37 @@ int points_to_read = 0;
 int newgraph_owner_fd = -1;
 std::mutex graph_mutex;
 
+// Per-client input buffer
 struct ClientState {
     std::string inbuf;
 };
 std::unordered_map<int, ClientState> clients;
 
+/**
+ * @brief Trim newline and leading whitespace from a string.
+ * @param s String to be modified.
+ */
 void trim_crlf(std::string &s) {
     while (!s.empty() && (s.back() == '\n' || s.back() == '\r')) s.pop_back();
     while (!s.empty() && std::isspace((unsigned char)s.front())) s.erase(s.begin());
 }
 
+/**
+ * @brief Check if a string represents a valid number.
+ * @param s Input string.
+ * @return True if s is a number, false otherwise.
+ */
 bool is_number(const std::string& s) {
     std::istringstream iss(s);
     double d;
     return (iss >> d) && iss.eof();
 }
 
+/**
+ * @brief Handle input line during Newgraph mode.
+ * @param line A line containing a point in "x,y" format.
+ * @return Response string.
+ */
 std::string handle_point_line(const std::string& line) {
     std::lock_guard<std::mutex> lock(graph_mutex);
     size_t comma = line.find(',');
@@ -63,6 +78,11 @@ std::string handle_point_line(const std::string& line) {
     return "OK";
 }
 
+/**
+ * @brief Handle Newpoint command.
+ * @param args A string with point coordinates in "x,y" format.
+ * @return Response string.
+ */
 std::string handle_newpoint(const std::string& args) {
     std::lock_guard<std::mutex> lock(graph_mutex);
     size_t comma = args.find(',');
@@ -75,6 +95,11 @@ std::string handle_newpoint(const std::string& args) {
     return "OK";
 }
 
+/**
+ * @brief Handle Removepoint command.
+ * @param args A string with point coordinates in "x,y" format.
+ * @return Response string.
+ */
 std::string handle_removepoint(const std::string& args) {
     std::lock_guard<std::mutex> lock(graph_mutex);
     size_t comma = args.find(',');
@@ -89,6 +114,10 @@ std::string handle_removepoint(const std::string& args) {
     return "OK";
 }
 
+/**
+ * @brief Handle CH (Convex Hull) command.
+ * @return String representation of the convex hull area.
+ */
 std::string handle_ch() {
     std::lock_guard<std::mutex> lock(graph_mutex);
     auto hull = compute_convex_hull_deque(point_set);
@@ -98,6 +127,12 @@ std::string handle_ch() {
     return oss.str();
 }
 
+/**
+ * @brief Process a command line from a client.
+ * @param fd Client socket file descriptor.
+ * @param rawline The raw input line.
+ * @return Response string.
+ */
 std::string process_line(int fd, const std::string& rawline) {
     std::string line = rawline;
     trim_crlf(line);
@@ -133,6 +168,11 @@ std::string process_line(int fd, const std::string& rawline) {
     return "ERROR: Unknown command.";
 }
 
+/**
+ * @brief Proactor client thread function.
+ * @param fd Client socket file descriptor.
+ * @return nullptr when done.
+ */
 void* client_thread_handler(int fd) {
     char buffer[1024];
     clients[fd] = ClientState{};
@@ -174,7 +214,10 @@ void* client_thread_handler(int fd) {
     return nullptr;
 }
 
-
+/**
+ * @brief Accept a new incoming connection and launch proactor.
+ * @param listener_fd Server listening socket.
+ */
 void handle_new_connection(int listener_fd) {
     int client_fd = accept(listener_fd, nullptr, nullptr);
     if (client_fd >= 0) {
@@ -183,6 +226,10 @@ void handle_new_connection(int listener_fd) {
     }
 }
 
+/**
+ * @brief Entry point of the server.
+ * @return Exit code.
+ */
 int main() {
     int listener = socket(AF_INET, SOCK_STREAM, 0);
     if (listener < 0) {

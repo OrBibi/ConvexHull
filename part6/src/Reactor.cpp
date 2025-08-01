@@ -8,12 +8,20 @@
 #include <vector>
 
 struct Reactor {
-    std::unordered_map<int, reactorFunc> handlers;
-    std::mutex lock;
-    std::atomic<bool> running;
-    std::thread loopThread;
+     std::unordered_map<int, reactorFunc> handlers; // Map of file descriptors to callback functions
+    std::mutex lock; // Mutex for synchronizing access to `handlers`
+    std::atomic<bool> running; // Flag indicating if the reactor is running
+    std::thread loopThread; //Thread running the reactor event loop
 };
 
+/**
+ * @brief The internal event loop for the reactor.
+ *
+ * Monitors registered file descriptors using `select`. When a descriptor becomes ready,
+ * its associated callback function is called. The loop runs as long as the `running` flag is true.
+ *
+ * @param reactor Pointer to the reactor instance.
+ */
 static void reactorLoop(Reactor* reactor) {
     while (reactor->running) {
         fd_set readfds;
@@ -58,12 +66,17 @@ static void reactorLoop(Reactor* reactor) {
                         continue;
                     }
                 }
-                func(fd);
+                func(fd); // Invoke the registered callback
             }
         }
     }
 }
 
+/**
+ * @brief Starts a new reactor instance and its event loop in a separate thread.
+ *
+ * @return A pointer to the created reactor instance, or nullptr on failure.
+ */
 void* startReactor() {
     Reactor* reactor = new Reactor;
     reactor->running = true;
@@ -71,6 +84,16 @@ void* startReactor() {
     return reactor;
 }
 
+/**
+ * @brief Registers a file descriptor and a callback function with the reactor.
+ *
+ * When the file descriptor becomes ready, the callback function is invoked.
+ *
+ * @param reactorPtr Pointer to the reactor instance.
+ * @param fd The file descriptor to monitor.
+ * @param func The callback function to call when `fd` is ready.
+ * @return 0 on success, -1 on failure.
+ */
 int addFdToReactor(void* reactorPtr, int fd, reactorFunc func) {
     Reactor* reactor = static_cast<Reactor*>(reactorPtr);
     std::lock_guard<std::mutex> guard(reactor->lock);
@@ -78,6 +101,15 @@ int addFdToReactor(void* reactorPtr, int fd, reactorFunc func) {
     return 0;
 }
 
+/**
+ * @brief Removes a file descriptor from the reactor.
+ *
+ * Stops monitoring the file descriptor and removes its associated callback.
+ *
+ * @param reactorPtr Pointer to the reactor instance.
+ * @param fd The file descriptor to remove.
+ * @return 0 on success, -1 on failure.
+ */
 int removeFdFromReactor(void* reactorPtr, int fd) {
     Reactor* reactor = static_cast<Reactor*>(reactorPtr);
     std::lock_guard<std::mutex> guard(reactor->lock);
@@ -85,6 +117,14 @@ int removeFdFromReactor(void* reactorPtr, int fd) {
     return 0;
 }
 
+/**
+ * @brief Stops the reactor loop and deallocates the reactor instance.
+ *
+ * Signals the background event loop to stop, joins the thread, and frees memory.
+ *
+ * @param reactorPtr Pointer to the reactor instance.
+ * @return 0 on success, -1 on failure.
+ */
 int stopReactor(void* reactorPtr) {
     Reactor* reactor = static_cast<Reactor*>(reactorPtr);
     reactor->running = false;

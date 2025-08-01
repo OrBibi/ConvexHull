@@ -5,13 +5,44 @@
 #include <deque>
 #include <chrono>
 
-// Check if a string is a valid float number
+/**
+ * @file
+ * @brief Convex Hull Area Calculator using std::deque (Stage 2)
+ *
+ * Reads a list of 2D points from standard input, computes the convex hull using
+ * the Monotone Chain algorithm (with std::deque), calculates the area of the hull,
+ * and measures the execution time in milliseconds.
+ *
+ * Input format:
+ * - First line: an integer N indicating the number of points.
+ * - Next N lines: each line contains a point in the format x,y.
+ * - Lines that are invalid are skipped until N valid points are received.
+ *
+ * Output:
+ * - Area of the convex hull.
+ * - Time in milliseconds taken to compute the convex hull.
+ */
+
+/**
+ * @brief Checks whether a string is a valid floating-point number.
+ * 
+ * @param s The string to check.
+ * @return true if the string is a valid float, false otherwise.
+ */
 bool is_number(const std::string& s) {
     std::istringstream iss(s);
     double d;
     return (iss >> d) && iss.eof();
 }
 
+/**
+ * @brief Main function to read points, compute convex hull, and display results.
+ * 
+ * Reads input from stdin, collects N valid points, computes the convex hull using a deque-based method,
+ * calculates the area of the hull, measures computation time, and prints both the area and duration.
+ * 
+ * @return 0 on success, 1 on failure due to invalid or missing input.
+ */
 int main() {
     std::string line;
     int n = 0;

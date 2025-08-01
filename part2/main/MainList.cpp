@@ -5,13 +5,45 @@
 #include <list>
 #include <chrono>
 
-// Check if a string is a valid float number
+/**
+ * @file
+ * @brief Convex Hull Area Calculator using std::list (Stage 3)
+ *
+ * This program reads 2D points from standard input, computes their convex hull
+ * using the Monotone Chain algorithm adapted for `std::list`, calculates the area
+ * of the convex hull, and prints both the area and the computation time.
+ *
+ * Input format:
+ * - First line: an integer N representing the number of points.
+ * - Next N lines: each line in the format x,y (floating-point values).
+ * - Invalid or empty lines are ignored until N valid points are collected.
+ *
+ * Output:
+ * - The area of the convex hull.
+ * - The time taken to compute the convex hull (in milliseconds).
+ */
+
+/**
+ * @brief Checks if a given string is a valid floating-point number.
+ *
+ * @param s The input string to check.
+ * @return true if the string represents a valid float, false otherwise.
+ */
 bool is_number(const std::string& s) {
     std::istringstream iss(s);
     double d;
     return (iss >> d) && iss.eof();
 }
 
+/**
+ * @brief Main function that reads input, computes convex hull, and prints area and time.
+ *
+ * Reads an integer N and then reads N valid 2D points in the form x,y from standard input.
+ * It uses a list-based implementation of the convex hull algorithm, calculates the area
+ * using the shoelace formula, and prints both the area and execution time.
+ *
+ * @return 0 on success, 1 on input or processing error.
+ */
 int main() {
     std::string line;
     int n = 0;

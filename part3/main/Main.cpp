@@ -18,17 +18,29 @@
 #define PORT 9034
 #define MAX_CLIENTS 10
 
-std::deque<Point> point_set;
-std::deque<Point> temp_points;
-bool waiting_for_graph = false;
-int points_to_read = 0;
+std::deque<Point> point_set; // Global deque containing the current set of points
+std::deque<Point> temp_points; // Temporary storage for new graph input
+bool waiting_for_graph = false; // Indicates if the server is currently waiting to receive points for a new graph
+int points_to_read = 0; // Number of points remaining to read for the new graph
 
+/**
+ * @brief Checks if a string is a valid floating-point number.
+ * 
+ * @param s The input string.
+ * @return true if the string is a float, false otherwise.
+ */
 bool is_number(const std::string& s) {
     std::istringstream iss(s);
     double d;
     return (iss >> d) && iss.eof();
 }
 
+/**
+ * @brief Handles a line containing a single point when in graph-building mode.
+ * 
+ * @param line A string of the form x,y.
+ * @return "OK" if the point was added, or an error message otherwise.
+ */
 std::string handle_point_line(const std::string& line) {
     size_t comma = line.find(',');
     if (comma == std::string::npos) return "ERROR: Invalid point format.";
@@ -48,6 +60,12 @@ std::string handle_point_line(const std::string& line) {
     return "OK";
 }
 
+/**
+ * @brief Handles the "Newgraph" command to start a new graph.
+ * 
+ * @param arg_line The argument string containing the number of points.
+ * @return "OK" if valid, or an error message otherwise.
+ */
 std::string handle_newgraph(const std::string& arg_line) {
     std::istringstream args(arg_line);
     int n;
@@ -59,6 +77,12 @@ std::string handle_newgraph(const std::string& arg_line) {
     return "OK";
 }
 
+/**
+ * @brief Handles the "Newpoint" command to add a point to the graph.
+ * 
+ * @param args A string of the form x,y.
+ * @return "OK" if valid, or an error message otherwise.
+ */
 std::string handle_newpoint(const std::string& args) {
     size_t comma = args.find(',');
     if (comma == std::string::npos) return "ERROR: Invalid Newpoint format.";
@@ -71,6 +95,13 @@ std::string handle_newpoint(const std::string& args) {
     point_set.push_back(p);
     return "OK";
 }
+
+/**
+ * @brief Handles the "Removepoint" command to remove a specific point.
+ * 
+ * @param args A string of the form x,y.
+ * @return "OK" if the point was found and removed, or an error message otherwise.
+ */
 
 std::string handle_removepoint(const std::string& args) {
     size_t comma = args.find(',');
@@ -87,6 +118,11 @@ std::string handle_removepoint(const std::string& args) {
     return "OK";
 }
 
+/**
+ * @brief Handles the "CH" command: computes the convex hull and returns its area.
+ * 
+ * @return A string representation of the convex hull's area.
+ */
 std::string handle_ch() {
     auto hull = compute_convex_hull_deque(point_set);
     double area = compute_area(hull);
@@ -95,6 +131,12 @@ std::string handle_ch() {
     return oss.str();
 }
 
+/**
+ * @brief Parses and dispatches a single input line command from a client.
+ * 
+ * @param line The command line input.
+ * @return The response string to be sent back to the client.
+ */
 std::string process_line(const std::string& line) {
     if (line.empty()) return "";
     if (waiting_for_graph) return handle_point_line(line);
@@ -115,6 +157,11 @@ std::string process_line(const std::string& line) {
     return "ERROR: Unknown command.";
 }
 
+/**
+ * @brief Main server loop: handles incoming TCP client connections and processes commands.
+ * 
+ * @return Always returns 0 (infinite loop unless manually stopped).
+ */
 int main() {
     int listener = socket(AF_INET, SOCK_STREAM, 0);
     sockaddr_in server{};

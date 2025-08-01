@@ -19,10 +19,15 @@
 
 std::mutex graph_mutex;     // Added: mutex to protect access to shared graph data
 
+/**
+ * @struct ClientState
+ * @brief Stores per-client state including partial input buffer.
+ */
 struct ClientState {
     std::string inbuf;
 };
 
+// --- Shared server state ---
 std::deque<Point> point_set;
 std::deque<Point> temp_points;
 bool waiting_for_graph = false;
@@ -30,21 +35,40 @@ int points_to_read = 0;
 int newgraph_owner_fd = -1;
 std::unordered_map<int, ClientState> clients;
 
+/**
+ * @brief Checks if a string represents a valid number.
+ * @param s The input string.
+ * @return True if the string can be parsed as a number.
+ */
 bool is_number(const std::string& s) {
     std::istringstream iss(s);
     double d;
     return (iss >> d) && iss.eof();
 }
 
+/**
+ * @brief Trims newline and leading spaces from a string.
+ * @param s The string to trim (in-place).
+ */
 void trim_crlf(std::string &s) {
     while (!s.empty() && (s.back() == '\n' || s.back() == '\r')) s.pop_back();
     while (!s.empty() && std::isspace((unsigned char)s.front())) s.erase(s.begin());
 }
 
+/**
+ * @brief Checks if a file descriptor is blocked from writing due to active graph input.
+ * @param fd File descriptor to check.
+ * @return True if the client must wait.
+ */
 bool is_busy_for_fd(int fd) {
     return waiting_for_graph && fd != newgraph_owner_fd;
 }
 
+/**
+ * @brief Handles input line containing a single point during Newgraph construction.
+ * @param line The input line.
+ * @return Response message for the client.
+ */
 std::string handle_point_line(const std::string& line) {
     std::lock_guard<std::mutex> lock(graph_mutex); // Protect access to shared temp_points
     size_t comma = line.find(',');
@@ -66,6 +90,11 @@ std::string handle_point_line(const std::string& line) {
     return "OK";
 }
 
+/**
+ * @brief Adds a single point to the graph (via Newpoint).
+ * @param args Arguments after the command (x,y).
+ * @return Response message.
+ */
 std::string handle_newpoint(const std::string& args) {
     std::lock_guard<std::mutex> lock(graph_mutex); // Protect access to point_set
     size_t comma = args.find(',');
@@ -78,6 +107,11 @@ std::string handle_newpoint(const std::string& args) {
     return "OK";
 }
 
+/**
+ * @brief Removes a specific point from the graph.
+ * @param args Arguments after the command (x,y).
+ * @return Response message.
+ */
 std::string handle_removepoint(const std::string& args) {
     std::lock_guard<std::mutex> lock(graph_mutex); // Protect access to point_set
     size_t comma = args.find(',');
@@ -92,6 +126,10 @@ std::string handle_removepoint(const std::string& args) {
     return "OK";
 }
 
+/**
+ * @brief Computes the convex hull of the graph and returns its area.
+ * @return Area as a string.
+ */
 std::string handle_ch() {
     std::lock_guard<std::mutex> lock(graph_mutex); // Protect read access to point_set
     auto hull = compute_convex_hull_deque(point_set);
@@ -101,6 +139,12 @@ std::string handle_ch() {
     return oss.str();
 }
 
+/**
+ * @brief Parses and processes a full client command line.
+ * @param fd The client's file descriptor.
+ * @param rawline The full input line.
+ * @return Response string.
+ */
 std::string process_line(int fd, const std::string& rawline) {
     std::string line = rawline;
     trim_crlf(line);
@@ -141,6 +185,10 @@ std::string process_line(int fd, const std::string& rawline) {
     return "ERROR: Unknown command.";
 }
 
+/**
+ * @brief Handles interaction with a single connected client.
+ * @param client_fd The socket file descriptor of the client.
+ */
 void handle_client(int client_fd) {
     char buffer[1024];
     while (true) {
@@ -172,6 +220,10 @@ void handle_client(int client_fd) {
     }
 }
 
+/**
+ * @brief Main server loop. Accepts clients and launches threads to serve them.
+ * @return Exit code.
+ */
 int main() {
     int listener = socket(AF_INET, SOCK_STREAM, 0);
     sockaddr_in server{};

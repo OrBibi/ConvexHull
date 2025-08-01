@@ -16,35 +16,62 @@
 #define PORT 9034
 #define MAX_CLIENTS 10
 
-// Per-client state buffer
+/**
+ * @struct ClientState
+ * @brief Represents per-client state, including input buffer for incomplete messages.
+ */
 struct ClientState {
     std::string inbuf;  // Accumulate input until newline
 };
 
-// Shared graph data (global)
-std::deque<Point> point_set;
-std::deque<Point> temp_points;
-bool waiting_for_graph = false;
-int points_to_read = 0;
-int newgraph_owner_fd = -1;  // fd of the client building the new graph
-std::unordered_map<int, ClientState> clients;
+// === Global State ===
 
+std::deque<Point> point_set; // Current set of points forming the shared graph.
+std::deque<Point> temp_points; // Temporary buffer for points being read during a Newgraph command.
+bool waiting_for_graph = false; // True if a client is currently building a new graph.
+int points_to_read = 0; // Number of remaining points expected after Newgraph.
+int newgraph_owner_fd = -1;  // fd of the client building the new graph
+std::unordered_map<int, ClientState> clients; // Map of connected clients and their associated state.
+
+
+/**
+ * @brief Checks if a given string is a valid floating-point number.
+ * 
+ * @param s The input string.
+ * @return true if valid float, false otherwise.
+ */
 bool is_number(const std::string& s) {
     std::istringstream iss(s);
     double d;
     return (iss >> d) && iss.eof();
 }
 
+/**
+ * @brief Trims CR/LF and leading spaces from a string.
+ * 
+ * @param s The string to trim (modified in-place).
+ */
 void trim_crlf(std::string &s) {
     while (!s.empty() && (s.back() == '\n' || s.back() == '\r')) s.pop_back();
     while (!s.empty() && std::isspace((unsigned char)s.front())) s.erase(s.begin());
 }
 
-// Only the client who started Newgraph can continue sending points
+/**
+ * @brief Checks if a client is currently blocked due to another client's Newgraph.
+ *
+ * @param fd The file descriptor of the client.
+ * @return true if the client is blocked, false otherwise.
+ */
 bool is_busy_for_fd(int fd) {
     return waiting_for_graph && fd != newgraph_owner_fd;
 }
 
+/**
+ * @brief Handles a point line received during a Newgraph phase.
+ * 
+ * @param line Input in the format x,y
+ * @return "OK" or "GRAPH_LOADED" or an error message.
+ */
 std::string handle_point_line(const std::string& line) {
     size_t comma = line.find(',');
     if (comma == std::string::npos) return "ERROR: Invalid point format.";
@@ -65,6 +92,12 @@ std::string handle_point_line(const std::string& line) {
     return "OK";
 }
 
+/**
+ * @brief Handles a Newpoint command from any client.
+ * 
+ * @param args Input in the format x,y
+ * @return "OK" or error message.
+ */
 std::string handle_newpoint(const std::string& args) {
     size_t comma = args.find(',');
     if (comma == std::string::npos) return "ERROR: Invalid format.";
@@ -76,6 +109,12 @@ std::string handle_newpoint(const std::string& args) {
     return "OK";
 }
 
+/**
+ * @brief Handles a Removepoint command from any client.
+ * 
+ * @param args Input in the format x,y
+ * @return "OK" or error message.
+ */
 std::string handle_removepoint(const std::string& args) {
     size_t comma = args.find(',');
     if (comma == std::string::npos) return "ERROR: Invalid format.";
@@ -89,6 +128,11 @@ std::string handle_removepoint(const std::string& args) {
     return "OK";
 }
 
+/**
+ * @brief Handles the CH command: computes and returns the convex hull area.
+ *
+ * @return String containing the area.
+ */
 std::string handle_ch() {
     auto hull = compute_convex_hull_deque(point_set);
     double area = compute_area(hull);
@@ -97,6 +141,13 @@ std::string handle_ch() {
     return oss.str();
 }
 
+/**
+ * @brief Processes a full line received from a client.
+ * 
+ * @param fd The client's socket file descriptor.
+ * @param rawline The raw input line from the client.
+ * @return Response to be sent back to the client.
+ */
 std::string process_line(int fd, const std::string& rawline) {
     std::string line = rawline;
     trim_crlf(line);
@@ -136,6 +187,13 @@ std::string process_line(int fd, const std::string& rawline) {
     return "ERROR: Unknown command.";
 }
 
+/**
+ * @brief Main function that runs the TCP server event loop.
+ * 
+ * Accepts multiple clients, manages their states, and processes their commands.
+ * 
+ * @return Always returns 0 (infinite loop unless externally interrupted).
+ */
 int main() {
     int listener = socket(AF_INET, SOCK_STREAM, 0);
     sockaddr_in server{};

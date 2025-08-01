@@ -19,7 +19,10 @@
 #define PORT 9034
 #define MAX_CLIENTS 10
 
-// Per-client state buffer
+/**
+ * @struct ClientState
+ * @brief Maintains input buffer for each connected client.
+ */
 struct ClientState {
     std::string inbuf;  // Accumulate input until newline
 };
@@ -33,22 +36,44 @@ int newgraph_owner_fd = -1;  // fd of the client building the new graph
 std::unordered_map<int, ClientState> clients;
 void* globalReactor = nullptr;
 
+/**
+ * @brief Checks if a string represents a valid float.
+ *
+ * @param s The string to check.
+ * @return true if valid float, false otherwise.
+ */
 bool is_number(const std::string& s) {
     std::istringstream iss(s);
     double d;
     return (iss >> d) && iss.eof();
 }
 
+/**
+ * @brief Removes trailing CR/LF and leading spaces from a string.
+ *
+ * @param s The string to trim (modified in place).
+ */
 void trim_crlf(std::string &s) {
     while (!s.empty() && (s.back() == '\n' || s.back() == '\r')) s.pop_back();
     while (!s.empty() && std::isspace((unsigned char)s.front())) s.erase(s.begin());
 }
 
-// Only the client who started Newgraph can continue sending points
+/**
+ * @brief Checks whether a client is allowed to send points.
+ *
+ * @param fd The client's file descriptor.
+ * @return true if the client is blocked because another is building a graph.
+ */
 bool is_busy_for_fd(int fd) {
     return waiting_for_graph && fd != newgraph_owner_fd;
 }
 
+/**
+ * @brief Handles a line containing a point during Newgraph.
+ *
+ * @param line Input in the form "x,y".
+ * @return "OK", "GRAPH_LOADED", or an error message.
+ */
 std::string handle_point_line(const std::string& line) {
     size_t comma = line.find(',');
     if (comma == std::string::npos) return "ERROR: Invalid point format.";
@@ -69,6 +94,12 @@ std::string handle_point_line(const std::string& line) {
     return "OK";
 }
 
+/**
+ * @brief Handles the "Newpoint" command.
+ *
+ * @param args A string of the form "x,y".
+ * @return "OK" or error message.
+ */
 std::string handle_newpoint(const std::string& args) {
     size_t comma = args.find(',');
     if (comma == std::string::npos) return "ERROR: Invalid format.";
@@ -80,6 +111,12 @@ std::string handle_newpoint(const std::string& args) {
     return "OK";
 }
 
+/**
+ * @brief Handles the "Removepoint" command.
+ *
+ * @param args A string of the form "x,y".
+ * @return "OK" or error message.
+ */
 std::string handle_removepoint(const std::string& args) {
     size_t comma = args.find(',');
     if (comma == std::string::npos) return "ERROR: Invalid format.";
@@ -93,6 +130,11 @@ std::string handle_removepoint(const std::string& args) {
     return "OK";
 }
 
+/**
+ * @brief Computes the convex hull area of the current point set.
+ *
+ * @return A string containing the area.
+ */
 std::string handle_ch() {
     auto hull = compute_convex_hull_deque(point_set);
     double area = compute_area(hull);
@@ -101,6 +143,13 @@ std::string handle_ch() {
     return oss.str();
 }
 
+/**
+ * @brief Parses and executes a line of input from a client.
+ *
+ * @param fd The client's file descriptor.
+ * @param rawline The raw input line.
+ * @return Response string to send back to the client.
+ */
 std::string process_line(int fd, const std::string& rawline) {
     std::string line = rawline;
     trim_crlf(line);
@@ -140,6 +189,13 @@ std::string process_line(int fd, const std::string& rawline) {
     return "ERROR: Unknown command.";
 }
 
+/**
+ * @brief Handles incoming data from a connected client.
+ *
+ * If the client disconnects, cleans up state and removes the client from the reactor.
+ *
+ * @param fd The client's file descriptor.
+ */
 void handle_client(int fd) {
     char buffer[1024];
     int bytes = recv(fd, buffer, sizeof(buffer), 0);
@@ -175,6 +231,11 @@ void handle_client(int fd) {
     }
 }
 
+/**
+ * @brief Handles new client connections on the listener socket.
+ *
+ * @param fd The listener socket file descriptor.
+ */
 void handle_listener(int fd) {
     int client_fd = accept(fd, nullptr, nullptr);
     if (client_fd >= 0) {
@@ -186,6 +247,13 @@ void handle_listener(int fd) {
     }
 }
 
+/**
+ * @brief Entry point of the server.
+ *
+ * Initializes the TCP socket, starts the reactor, and waits for events.
+ *
+ * @return 0 on success, 1 on failure.
+ */
 int main() {
     int listener = socket(AF_INET, SOCK_STREAM, 0);
     if (listener < 0) {

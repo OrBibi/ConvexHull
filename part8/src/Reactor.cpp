@@ -7,6 +7,10 @@
 #include <atomic>
 #include <vector>
 
+/**
+ * @struct Reactor
+ * @brief Represents the state of the reactor pattern, managing file descriptors and their associated callbacks.
+ */
 struct Reactor {
     std::unordered_map<int, reactorFunc> handlers;
     std::mutex lock;
@@ -14,6 +18,14 @@ struct Reactor {
     std::thread loopThread;
 };
 
+/**
+ * @brief Internal loop that waits for I/O events and calls appropriate handler functions.
+ * 
+ * This function continuously monitors the registered file descriptors using `select()`.
+ * When a file descriptor becomes ready, it invokes the associated callback function.
+ *
+ * @param reactor Pointer to the reactor instance.
+ */
 static void reactorLoop(Reactor* reactor) {
     while (reactor->running) {
         fd_set readfds;
@@ -64,6 +76,11 @@ static void reactorLoop(Reactor* reactor) {
     }
 }
 
+/**
+ * @brief Starts a new reactor and begins the event loop in a separate thread.
+ * 
+ * @return Pointer to the newly allocated reactor instance.
+ */
 void* startReactor() {
     Reactor* reactor = new Reactor;
     reactor->running = true;
@@ -71,6 +88,14 @@ void* startReactor() {
     return reactor;
 }
 
+/**
+ * @brief Registers a file descriptor and its callback function with the reactor.
+ * 
+ * @param reactorPtr Pointer to the reactor instance.
+ * @param fd File descriptor to monitor.
+ * @param func Callback function to invoke when the file descriptor is ready.
+ * @return 0 on success.
+ */
 int addFdToReactor(void* reactorPtr, int fd, reactorFunc func) {
     Reactor* reactor = static_cast<Reactor*>(reactorPtr);
     std::lock_guard<std::mutex> guard(reactor->lock);
@@ -78,6 +103,13 @@ int addFdToReactor(void* reactorPtr, int fd, reactorFunc func) {
     return 0;
 }
 
+/**
+ * @brief Removes a file descriptor from the reactor.
+ * 
+ * @param reactorPtr Pointer to the reactor instance.
+ * @param fd File descriptor to remove.
+ * @return 0 on success.
+ */
 int removeFdFromReactor(void* reactorPtr, int fd) {
     Reactor* reactor = static_cast<Reactor*>(reactorPtr);
     std::lock_guard<std::mutex> guard(reactor->lock);
@@ -85,6 +117,14 @@ int removeFdFromReactor(void* reactorPtr, int fd) {
     return 0;
 }
 
+/**
+ * @brief Stops the reactor and cleans up its resources.
+ * 
+ * This function signals the event loop to stop and joins the thread.
+ *
+ * @param reactorPtr Pointer to the reactor instance.
+ * @return 0 on success.
+ */
 int stopReactor(void* reactorPtr) {
     Reactor* reactor = static_cast<Reactor*>(reactorPtr);
     reactor->running = false;
