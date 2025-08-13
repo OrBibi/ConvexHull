@@ -166,9 +166,9 @@ std::string process_line(int fd, const std::string& rawline) {
     iss >> command;
     std::string args;
     std::getline(iss, args);
-    size_t pos = args.find_first_not_of(" ");
-    if (pos != std::string::npos) args.erase(0, pos);
-    else args.clear();
+    size_t pos = args.find_first_not_of(" "); // finds the index of the first non-space character.
+    if (pos != std::string::npos) args.erase(0, pos); // if found—removes leading whitespace.
+    else args.clear(); // else—clears (no arguments).
 
     if (command == "Newgraph") {
         std::istringstream a(args);
@@ -195,52 +195,63 @@ std::string process_line(int fd, const std::string& rawline) {
  * @return Always returns 0 (infinite loop unless externally interrupted).
  */
 int main() {
+    // Create a TCP socket (IPv4, stream-based)
     int listener = socket(AF_INET, SOCK_STREAM, 0);
-    sockaddr_in server{};
-    server.sin_family = AF_INET;
-    server.sin_port = htons(PORT);
-    server.sin_addr.s_addr = INADDR_ANY;
 
+    // Prepare server address structure
+    sockaddr_in server{};
+    server.sin_family = AF_INET; // IPv4
+    server.sin_port = htons(PORT); // Set port (convert to network byte order)
+    server.sin_addr.s_addr = INADDR_ANY; // Accept connections from any IP address
+
+    // Bind the socket to the address and port
     bind(listener, (sockaddr*)&server, sizeof(server));
+
+    // Start listening for incoming connections
     listen(listener, MAX_CLIENTS);
 
+    // Prepare file descriptor sets for select()
     fd_set master, read_fds;
-    FD_ZERO(&master);
-    FD_SET(listener, &master);
-    int fdmax = listener;
+    FD_ZERO(&master); // Clear the master set
+    FD_SET(listener, &master); // Add the listener socket to the master set
+    int fdmax = listener; // Keep track of the max file descriptor number
 
+    // Main loop to handle incoming connections and data
     while (true) {
-        read_fds = master;
-        select(fdmax + 1, &read_fds, nullptr, nullptr, nullptr);
+        read_fds = master; // Copy master set to a temporary set
+        select(fdmax + 1, &read_fds, nullptr, nullptr, nullptr); // Wait for activity
 
+        // Loop through all file descriptors
         for (int i = 0; i <= fdmax; ++i) {
-            if (FD_ISSET(i, &read_fds)) {
-                if (i == listener) {
-                    int newfd = accept(listener, nullptr, nullptr);
-                    FD_SET(newfd, &master);
-                    if (newfd > fdmax) fdmax = newfd;
-                    clients[newfd] = ClientState{};
-                } else {
+            if (FD_ISSET(i, &read_fds)) {  // Check if this fd is ready to read
+                if (i == listener) { // New incoming connection
+                    int newfd = accept(listener, nullptr, nullptr); // Accept the connection
+                    FD_SET(newfd, &master); // Add new client socket to the master set
+                    if (newfd > fdmax) fdmax = newfd; // Update max fd if needed
+                    clients[newfd] = ClientState{};  // Initialize client state
+                } else {   // Data from an existing client
                     char buffer[1024];
-                    int bytes = recv(i, buffer, sizeof(buffer), 0);
-                    if (bytes <= 0) {
-                        close(i);
-                        FD_CLR(i, &master);
-                        clients.erase(i);
+                    int bytes = recv(i, buffer, sizeof(buffer), 0); // Receive data
+                    if (bytes <= 0) { // Connection closed or error
+                        close(i);  // Close the socket
+                        FD_CLR(i, &master);  // Remove from master set
+                        clients.erase(i); // Remove client from map
+                        // If this client was uploading a graph, reset graph state
                         if (waiting_for_graph && i == newgraph_owner_fd) {
                             waiting_for_graph = false;
                             temp_points.clear();
                             newgraph_owner_fd = -1;
                         }
-                    } else {
-                        std::string& inbuf = clients[i].inbuf;
-                        inbuf.append(buffer, bytes);
+                    } else {                   // Received some data
+                        std::string& inbuf = clients[i].inbuf; // Get client's input buffer
+                        inbuf.append(buffer, bytes);           // Append new data
                         size_t pos;
+                        // Process each complete line of data
                         while ((pos = inbuf.find('\n')) != std::string::npos) {
-                            std::string line = inbuf.substr(0, pos + 1);
-                            inbuf.erase(0, pos + 1);
-                            std::string response = process_line(i, line);
-                            if (!response.empty()) {
+                            std::string line = inbuf.substr(0, pos + 1); // Extract line
+                            inbuf.erase(0, pos + 1);                    // Remove it from buffer
+                            std::string response = process_line(i, line); // Handle the line
+                            if (!response.empty()) { // Send response back to client
                                 response += "\n";
                                 send(i, response.c_str(), response.size(), 0);
                             }
